@@ -14,7 +14,7 @@
 @font-face {font-family: 'Gotham'; src: url('https://raw.githubusercontent.com/sezerkina/deneme2/main/fonts/Gotham%20Medium%20Italic.ttf') format('truetype'); font-weight:500; font-style:italic;}
 @font-face {font-family: 'Gotham'; src: url('https://raw.githubusercontent.com/sezerkina/deneme2/main/fonts/Gotham%20Bold.otf') format('opentype'); font-weight:700; font-style:normal;}
 
-html,body{height:100%;margin:0;font-family:Gotham, "Helvetica Neue", Arial, sans-serif;background:#f7f9fb;}
+html,body{height:100%;margin:0;font-family:Gotham, "Helvetica Neue", Arial, sans-serif;background:#f7f9fb;overflow:hidden;}
 
 /* -------- SIDEBAR -------- */
 #sidebar{
@@ -27,22 +27,17 @@ html,body{height:100%;margin:0;font-family:Gotham, "Helvetica Neue", Arial, sans
   padding:18px;
   box-sizing:border-box;
   overflow:auto;
-  transition:all .35s ease;
+  transition:transform .35s ease;
   z-index:1200;
 }
-#sidebar.closed{
-  transform:translateX(-100%);
-  box-shadow:none;
-  border-right:none;
-  padding:0;
-  width:0;
-}
+#sidebar.closed{transform:translateX(-100%);}
 
+/* Toggle Button */
 #toggle-btn{
   position:absolute;
-  top:16px;
-  right:-14px;
-  width:26px;
+  top:20px;
+  left:340px;
+  width:28px;
   height:48px;
   background:#fff;
   border:1px solid #d0d7df;
@@ -54,25 +49,16 @@ html,body{height:100%;margin:0;font-family:Gotham, "Helvetica Neue", Arial, sans
   cursor:pointer;
   z-index:2000;
   box-shadow:0 1px 3px rgba(0,0,0,0.15);
-  transition:background 0.2s ease;
+  transition:background 0.2s ease, left .35s ease;
 }
 #toggle-btn:hover{background:#f3f4f6;}
-#toggle-btn span{
-  font-size:14pt;
-  line-height:1;
-  color:#0f172a;
-  user-select:none;
-  transition:transform .3s ease;
-}
-#sidebar.closed + #toggle-btn span{
-  transform:rotate(180deg);
-}
+#toggle-btn span{font-size:14pt;color:#0f172a;user-select:none;}
 
+/* -------- LİSTELER -------- */
 #sidebar h1{font-weight:700;font-size:12pt;margin:4px 0 8px;}
 #sidebar .description{font-weight:400;font-style:italic;font-size:8pt;color:#445;line-height:1.2;margin-bottom:12px;}
 #search{width:100%;padding:6px 8px;font-size:8pt;font-style:italic;border:1px solid #d0d7df;border-radius:6px;margin-bottom:12px;box-sizing:border-box;}
 
-/* -------- LİSTELER -------- */
 .film{margin-bottom:10px;border-bottom:1px solid #f0f4f8;padding-bottom:8px;}
 .film-title{cursor:pointer;font-weight:500;font-size:11pt;color:#0f172a;margin-bottom:6px;}
 .mekan-list{list-style:disc;margin:0 0 0 18px;padding:0;display:none;}
@@ -80,12 +66,7 @@ html,body{height:100%;margin:0;font-family:Gotham, "Helvetica Neue", Arial, sans
 .mekan-list li:hover{text-decoration:underline;}
 
 /* -------- HARİTA -------- */
-#map{
-  position:absolute;
-  left:0;top:0;right:0;bottom:0;
-  transition:left .35s ease;
-  z-index:1;
-}
+#map{position:absolute;left:0;top:0;right:0;bottom:0;z-index:1;}
 .leaflet-control-zoom{position:absolute !important;bottom:20px;right:20px;}
 
 /* popup images */
@@ -104,11 +85,11 @@ html,body{height:100%;margin:0;font-family:Gotham, "Helvetica Neue", Arial, sans
   <input id="search" placeholder="Haritada ara" aria-label="Haritada ara">
   <div id="film-list"></div>
 </aside>
-<div id="toggle-btn" title="Paneli Aç/Kapat"><span>◂</span></div>
+<div id="toggle-btn"><span>◂</span></div>
 <div id="map"></div>
 
 <script>
-// Yardımcı: "folder" bilgisinden film adını temizle
+// Yardımcı: folder'dan film adı çıkar
 function filmFromFolder(folder){
   if(!folder) return "Bilinmeyen Film";
   let parts = folder.split('/');
@@ -117,14 +98,12 @@ function filmFromFolder(folder){
   return s || "Bilinmeyen Film";
 }
 
-// Haritayı başlat
+// Harita
 const map = L.map('map', {zoomControl:true}).setView([39.93,32.85],11);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap contributors, &copy; Carto',
   maxZoom: 22
 }).addTo(map);
-
-// Zoom kontrolünü sağ alt köşeye taşı
 map.zoomControl.setPosition('bottomright');
 
 let films = {};
@@ -136,42 +115,70 @@ fetch('merged_from_kmz.geojson')
 .then(r=>r.json())
 .then(data=>{
   data.features.forEach(f=>{
-    const folder = f.properties && f.properties.folder;
+    const folder = f.properties?.folder;
     const film = filmFromFolder(folder);
-    const name = (f.properties && (f.properties.name || f.properties.title)) || "(Adsız Mekân)";
+    const name = f.properties?.name || f.properties?.title || "(Adsız Mekân)";
     if(!films[film]) films[film]=[];
     films[film].push(f);
 
     const geom = f.geometry;
     if(!geom) return;
-    let layer=null;
-    if(geom.type==='Point'){
+
+    let layer = null;
+
+    // Nokta
+    if(geom.type === 'Point'){
       const coords = [geom.coordinates[1], geom.coordinates[0]];
-      layer = L.marker(coords);
-    } else if(geom.type==='LineString'){
-      const coords = geom.coordinates.map(c=>[c[1],c[0]]);
-      layer = L.polyline(coords, {color:(f.properties.lineStyle && f.properties.lineStyle.color)||'#2563eb', weight: (f.properties.lineStyle && f.properties.lineStyle.width)||2});
-    } else { return; }
+      const iconHref = f.properties?.icon?.href;
+      if(iconHref){
+        const icon = L.icon({
+          iconUrl: iconHref,
+          iconSize: [32, 32],
+          iconAnchor: [16, 32]
+        });
+        layer = L.marker(coords, {icon});
+      } else {
+        // Renkli dairesel marker
+        const color = (f.properties?.styleUrl && f.properties.styleUrl.match(/#[0-9A-Fa-f]{6}/))
+          ? f.properties.styleUrl.match(/#[0-9A-Fa-f]{6}/)[0]
+          : '#2563eb';
+        layer = L.circleMarker(coords, {radius:6, color, fillColor:color, fillOpacity:1});
+      }
+    }
 
-    const props = f.properties || {};
-    let popup = '<div style="font-family:Gotham, Arial, sans-serif;">';
-    popup += `<div style="font-weight:700;margin-bottom:4px;">${film}</div>`;
-    popup += `<div style="font-weight:600;margin-bottom:6px;">${name}</div>`;
-    if(props.description) popup += `<div>${props.description}</div>`;
-    popup += '</div>';
+    // Çizgi
+    else if(geom.type === 'LineString'){
+      const coords = geom.coordinates.map(c=>[c[1], c[0]]);
+      const style = f.properties?.lineStyle || {};
+      layer = L.polyline(coords, {
+        color: style.color || '#ff5252',
+        opacity: style.opacity ?? 0.9,
+        weight: style.width || 2
+      });
+    }
 
-    layer.bindPopup(popup);
-    layer.feature = f;
-    allLayers.addLayer(layer);
-    featureToLayer.set(f, layer);
+    // Popup
+    if(layer){
+      const props = f.properties || {};
+      let popup = `<div style="font-family:Gotham, Arial, sans-serif;">`;
+      popup += `<div style="font-weight:700;margin-bottom:4px;">${film}</div>`;
+      popup += `<div style="font-weight:600;margin-bottom:6px;">${name}</div>`;
+      if(props.description) popup += `<div>${props.description}</div>`;
+      popup += `</div>`;
+      layer.bindPopup(popup);
+      layer.feature = f;
+      allLayers.addLayer(layer);
+      featureToLayer.set(f, layer);
+    }
   });
 
+  // Harita sınırları
   try{
     const b=allLayers.getBounds();
     if(b && b.isValid && b.isValid()) map.fitBounds(b.pad(0.08));
   }catch(e){ map.setView([39.93,32.85],11); }
 
-  // Paneli oluştur
+  // Panel listesi
   const filmList = document.getElementById('film-list');
   Object.keys(films).sort().forEach(film=>{
     const div=document.createElement('div');
@@ -203,9 +210,8 @@ fetch('merged_from_kmz.geojson')
     filmList.appendChild(div);
   });
 
-  // Arama işlevi
-  const search=document.getElementById('search');
-  search.addEventListener('input',(e)=>{
+  // Arama
+  document.getElementById('search').addEventListener('input',(e)=>{
     const q=e.target.value.trim().toLowerCase();
     document.querySelectorAll('.film').forEach(div=>{
       const title=div.querySelector('.film-title').textContent.toLowerCase();
@@ -216,20 +222,20 @@ fetch('merged_from_kmz.geojson')
   });
 
   // Panel aç/kapa
-  const toggle=document.getElementById('toggle-btn');
   const sidebar=document.getElementById('sidebar');
-  toggle.addEventListener('click',(e)=>{
-    e.stopPropagation();
+  const toggle=document.getElementById('toggle-btn');
+  const arrow=toggle.querySelector('span');
+  toggle.addEventListener('click',()=>{
     sidebar.classList.toggle('closed');
-    const arrow=toggle.querySelector('span');
     if(sidebar.classList.contains('closed')){
+      toggle.style.left='0';
       arrow.textContent='▸';
     } else {
+      toggle.style.left='340px';
       arrow.textContent='◂';
     }
     map.invalidateSize();
   });
-
 })
 .catch(err=>{
   console.error('GeoJSON load error', err);
