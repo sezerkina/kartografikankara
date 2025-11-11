@@ -111,7 +111,7 @@ let featureToLayer = new Map();
 let allLayers = L.layerGroup().addTo(map);
 
 // GeoJSON yükle
-fetch('merged_from_kmz.geojson')
+fetch('kmzs.geojson')
 .then(r=>r.json())
 .then(data=>{
   data.features.forEach(f=>{
