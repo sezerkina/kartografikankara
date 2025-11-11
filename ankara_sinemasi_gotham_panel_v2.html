@@ -30,9 +30,11 @@ html,body{height:100%;margin:0;font-family:Gotham, "Helvetica Neue", Arial, sans
   transition:transform .35s ease;
   z-index:1200;
 }
-#sidebar.closed{transform:translateX(-100%);}
+#sidebar.closed{
+  transform:translateX(-100%);
+}
 
-/* Toggle Button */
+/* Toggle Button (kendi konumunu JS ile ayarlıyoruz) */
 #toggle-btn{
   position:absolute;
   top:20px;
@@ -69,6 +71,17 @@ html,body{height:100%;margin:0;font-family:Gotham, "Helvetica Neue", Arial, sans
 #map{position:absolute;left:0;top:0;right:0;bottom:0;z-index:1;}
 .leaflet-control-zoom{position:absolute !important;bottom:20px;right:20px;}
 
+/* DivIcon küçük daire stili */
+.marker-div {
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.marker-div.small { width: 18px; height:18px; border-radius:9px; }
+.marker-div.large { width: 40px; height:40px; border-radius:20px; }
+
 /* popup images */
 .leaflet-popup-content img{max-width:260px;height:auto;border-radius:6px;margin-top:6px;display:block;}
 </style>
@@ -85,20 +98,169 @@ html,body{height:100%;margin:0;font-family:Gotham, "Helvetica Neue", Arial, sans
   <input id="search" placeholder="Haritada ara" aria-label="Haritada ara">
   <div id="film-list"></div>
 </aside>
+
 <div id="toggle-btn"><span>◂</span></div>
 <div id="map"></div>
 
 <script>
-// Yardımcı: folder'dan film adı çıkar
-function filmFromFolder(folder){
-  if(!folder) return "Bilinmeyen Film";
-  let parts = folder.split('/');
-  let s = parts[0].trim();
-  s = s.replace(/[|]+/g,'').trim();
-  return s || "Bilinmeyen Film";
+// ---- Yardımcı fonksiyonlar: renk ve ikon çözümleyiciler ----
+
+// KML renk (aabbggrr) -> #rrggbb
+function kmlColorToHex(kml) {
+  if(!kml) return null;
+  // clean non-hex
+  const s = String(kml).replace(/[^A-Fa-f0-9]/g,'');
+  if(s.length === 8) {
+    // aabbggrr -> rrggbb
+    const a = s.slice(0,2), bb = s.slice(2,4), gg = s.slice(4,6), rr = s.slice(6,8);
+    return '#' + rr + gg + bb;
+  }
+  if(s.length === 6) { return '#' + s; }
+  return null;
 }
 
-// Harita
+// hex normalization
+function normalizeHex(h) {
+  if(!h) return null;
+  const m = String(h).match(/#?[A-Fa-f0-9]{6}/);
+  if(m) return (m[0].startsWith('#')?m[0]:'#'+m[0]);
+  return null;
+}
+
+// create a DivIcon colored circle (keeps sharp on scaling)
+function createColoredDivIcon(color, size=28) {
+  const cls = 'marker-div' + (size<=18? ' small' : (size>=36? ' large':''));
+  const style = `background:${color};width:${size}px;height:${size}px;border-radius:${Math.floor(size/2)}px;display:block;`;
+  const html = `<div class="${cls}" style="${style}"></div>`;
+  return L.divIcon({html: html, className: 'custom-div-icon', iconSize: [size, size], iconAnchor: [Math.floor(size/2), Math.floor(size)]});
+}
+
+// pick color from various property shapes
+function pickColorFromProps(props) {
+  if(!props) return null;
+  // 1) styleUrl like "#line-FF5252-1388" or "#FF5252"
+  if(props.styleUrl) {
+    const m = String(props.styleUrl).match(/#[0-9A-Fa-f]{6}/);
+    if(m) return m[0];
+  }
+  // 2) polyStyle or lineStyle color
+  if(props.lineStyle && props.lineStyle.color) {
+    const c = normalizeHex(props.lineStyle.color);
+    if(c) return c;
+  }
+  if(props.polyStyle && props.polyStyle.color) {
+    const c = kmlColorToHex(props.polyStyle.color) || normalizeHex(props.polyStyle.color);
+    if(c) return c;
+  }
+  // 3) KML color field (sometimes props.color or props.kml_color)
+  if(props.color) {
+    const c = kmlColorToHex(props.color) || normalizeHex(props.color);
+    if(c) return c;
+  }
+  if(props.kml_color) {
+    const c = kmlColorToHex(props.kml_color) || normalizeHex(props.kml_color);
+    if(c) return c;
+  }
+  // 4) marker-color common geojson prop
+  if(props['marker-color']) {
+    const c = normalizeHex(props['marker-color']);
+    if(c) return c;
+  }
+  // default
+  return '#2563eb';
+}
+
+// create Leaflet layer for a feature with style inference
+function createLayerForFeature(f) {
+  const geom = f.geometry;
+  const props = f.properties || {};
+  if(!geom) return null;
+
+  // helper to create popup content
+  const film = (props.folder ? String(props.folder).split('/')[0].replace(/[|]+/g,'').trim() : 'Bilinmeyen Film');
+  const name = props.name || props.title || '(Adsız Mekân)';
+  let popup = `<div style="font-family:Gotham, Arial, sans-serif;">`;
+  popup += `<div style="font-weight:700;margin-bottom:4px;">${escapeHtml(film)}</div>`;
+  popup += `<div style="font-weight:600;margin-bottom:6px;">${escapeHtml(name)}</div>`;
+  if(props.description) popup += `<div>${props.description}</div>`;
+  popup += `</div>`;
+
+  // POINT
+  if(geom.type === 'Point') {
+    const coords = [geom.coordinates[1], geom.coordinates[0]];
+
+    // 1) direct icon href/url (data: or remote)
+    const iconHref = (props.icon && (props.icon.href || props.icon.url)) || props['icon.href'] || props.iconUrl || props.icon_url || null;
+    if(iconHref) {
+      // detect scale
+      const scale = (props.icon && props.icon.scale) || props['icon.scale'] || props.iconScale || 1;
+      // set reasonable icon size
+      const size = Math.max(12, Math.min(64, Math.round(32 * Number(scale))));
+      const icon = L.icon({iconUrl: iconHref, iconSize: [size, size], iconAnchor: [Math.floor(size/2), size]});
+      const marker = L.marker(coords, {icon});
+      marker.bindPopup(popup);
+      return marker;
+    }
+
+    // 2) color info or styleUrl -> use colored DivIcon or circleMarker
+    const color = pickColorFromProps(props) || '#2563eb';
+
+    // If prop explicitly requests circleMarker style (fill/stroke)
+    if(props.marker === 'circle' || props.useCircle || props.circle === true) {
+      const radius = props.radius || (props.scaledRadius ? Math.max(4, Math.round(6 * (props.scaledRadius||1))) : 6);
+      const circle = L.circleMarker(coords, {
+        radius: radius,
+        color: props.strokeColor || color,
+        fillColor: props.fillColor || color,
+        fillOpacity: props.fillOpacity ?? 1,
+        weight: props.strokeWidth ?? 1
+      });
+      circle.bindPopup(popup);
+      return circle;
+    }
+
+    // Otherwise create DivIcon marker that can mimic colored icon (keeps crisp)
+    const scaleVal = (props.icon && props.icon.scale) || props['icon.scale'] || props.scale || 1;
+    const size = Math.max(14, Math.min(48, Math.round(24 * Number(scaleVal)));
+    // but DivIcon fallback:
+    const divIcon = createColoredDivIcon(color, size);
+    const marker = L.marker(coords, {icon: divIcon});
+    marker.bindPopup(popup);
+    return marker;
+  }
+
+  // LINESTRING
+  if(geom.type === 'LineString' || geom.type === 'MultiLineString') {
+    const coords = (geom.type === 'LineString') ? geom.coordinates.map(c=>[c[1], c[0]]) : geom.coordinates.flat().map(c=>[c[1], c[0]]);
+    const style = props.lineStyle || {};
+    const color = pickColorFromProps(props) || style.color || '#ff5252';
+    const weight = style.width || 3;
+    const opacity = style.opacity ?? 0.9;
+    const poly = L.polyline(coords, {color: color, weight: weight, opacity: opacity});
+    poly.bindPopup(popup);
+    return poly;
+  }
+
+  // POLYGON
+  if(geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
+    const coords = (geom.type === 'Polygon') ? geom.coordinates[0].map(c=>[c[1],c[0]]) : geom.coordinates.flat(2).map(c=>[c[1],c[0]]);
+    const polyStyle = props.polyStyle || {};
+    const fillColor = pickColorFromProps(props) || polyStyle.fillColor || '#fde68a';
+    const strokeColor = polyStyle.strokeColor || fillColor;
+    const weight = polyStyle.weight || 2;
+    const fillOpacity = polyStyle.fillOpacity ?? 0.4;
+    const polygon = L.polygon(coords, {color: strokeColor, weight: weight, fillColor: fillColor, fillOpacity: fillOpacity});
+    polygon.bindPopup(popup);
+    return polygon;
+  }
+
+  return null;
+}
+
+// small helper to escape text parts
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
+
+// ---- Harita başlangıcı ----
 const map = L.map('map', {zoomControl:true}).setView([39.93,32.85],11);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap contributors, &copy; Carto',
@@ -110,134 +272,90 @@ let films = {};
 let featureToLayer = new Map();
 let allLayers = L.layerGroup().addTo(map);
 
-// GeoJSON yükle
-fetch('merged_from_kmz.geojson')
-.then(r=>r.json())
-.then(data=>{
+// Pozisyon toggle butonunu panel kenarına hizala (başlangıç)
+const toggleBtn = document.getElementById('toggle-btn');
+function updateTogglePosition(isClosed) {
+  if(isClosed) {
+    toggleBtn.style.left = '0';
+  } else {
+    toggleBtn.style.left = '340px';
+  }
+}
+updateTogglePosition(false);
+
+// GeoJSON yükle ve stilleri uygula
+fetch('merged_from_kmz.geojson').then(r=>r.json()).then(data=>{
   data.features.forEach(f=>{
     const folder = f.properties?.folder;
-    const film = filmFromFolder(folder);
-    const name = f.properties?.name || f.properties?.title || "(Adsız Mekân)";
-    if(!films[film]) films[film]=[];
+    const film = folder ? String(folder).split('/')[0].replace(/[|]+/g,'').trim() : 'Bilinmeyen Film';
+    const name = f.properties?.name || f.properties?.title || '(Adsız Mekân)';
+    if(!films[film]) films[film] = [];
     films[film].push(f);
 
-    const geom = f.geometry;
-    if(!geom) return;
-
-    let layer = null;
-
-    // Nokta
-    if(geom.type === 'Point'){
-      const coords = [geom.coordinates[1], geom.coordinates[0]];
-      const iconHref = f.properties?.icon?.href;
-      if(iconHref){
-        const icon = L.icon({
-          iconUrl: iconHref,
-          iconSize: [32, 32],
-          iconAnchor: [16, 32]
-        });
-        layer = L.marker(coords, {icon});
-      } else {
-        // Renkli dairesel marker
-        const color = (f.properties?.styleUrl && f.properties.styleUrl.match(/#[0-9A-Fa-f]{6}/))
-          ? f.properties.styleUrl.match(/#[0-9A-Fa-f]{6}/)[0]
-          : '#2563eb';
-        layer = L.circleMarker(coords, {radius:6, color, fillColor:color, fillOpacity:1});
-      }
-    }
-
-    // Çizgi
-    else if(geom.type === 'LineString'){
-      const coords = geom.coordinates.map(c=>[c[1], c[0]]);
-      const style = f.properties?.lineStyle || {};
-      layer = L.polyline(coords, {
-        color: style.color || '#ff5252',
-        opacity: style.opacity ?? 0.9,
-        weight: style.width || 2
-      });
-    }
-
-    // Popup
-    if(layer){
-      const props = f.properties || {};
-      let popup = `<div style="font-family:Gotham, Arial, sans-serif;">`;
-      popup += `<div style="font-weight:700;margin-bottom:4px;">${film}</div>`;
-      popup += `<div style="font-weight:600;margin-bottom:6px;">${name}</div>`;
-      if(props.description) popup += `<div>${props.description}</div>`;
-      popup += `</div>`;
-      layer.bindPopup(popup);
-      layer.feature = f;
+    const layer = createLayerForFeature(f);
+    if(layer) {
       allLayers.addLayer(layer);
       featureToLayer.set(f, layer);
     }
   });
 
-  // Harita sınırları
-  try{
-    const b=allLayers.getBounds();
+  // fit map
+  try {
+    const b = allLayers.getBounds();
     if(b && b.isValid && b.isValid()) map.fitBounds(b.pad(0.08));
-  }catch(e){ map.setView([39.93,32.85],11); }
+  } catch(e) { map.setView([39.93,32.85],11); }
 
-  // Panel listesi
+  // build sidebar list
   const filmList = document.getElementById('film-list');
   Object.keys(films).sort().forEach(film=>{
-    const div=document.createElement('div');
-    div.className='film';
-    const title=document.createElement('div');
-    title.className='film-title';
-    title.textContent=film;
-    const ul=document.createElement('ul');
-    ul.className='mekan-list';
-
+    const div = document.createElement('div'); div.className='film';
+    const title = document.createElement('div'); title.className='film-title'; title.textContent = film;
+    const ul = document.createElement('ul'); ul.className='mekan-list';
     films[film].forEach(feat=>{
-      const li=document.createElement('li');
-      li.textContent=feat.properties.name||'(Adsız Mekan)';
-      li.onclick=(e)=>{
+      const li = document.createElement('li');
+      const pname = feat.properties?.name || feat.properties?.title || '(Adsız Mekan)';
+      li.textContent = pname;
+      li.onclick = (e) => {
         e.stopPropagation();
-        const layer=featureToLayer.get(feat);
+        const layer = featureToLayer.get(feat);
         if(!layer) return;
-        const g=feat.geometry;
-        if(g.type==='Point'){ map.setView([g.coordinates[1],g.coordinates[0]],16); }
-        else if(g.type==='LineString'){ map.fitBounds(L.polyline(g.coordinates.map(c=>[c[1],c[0]])).getBounds().pad(0.2)); }
+        const g = feat.geometry;
+        if(g.type === 'Point') { map.setView([g.coordinates[1], g.coordinates[0]], 16); }
+        else if(g.type === 'LineString') { map.fitBounds(L.polyline(g.coordinates.map(c=>[c[1],c[0]])).getBounds().pad(0.2)); }
+        else if(g.type === 'Polygon') { map.fitBounds(L.polygon(g.coordinates[0].map(c=>[c[1],c[0]])).getBounds().pad(0.2)); }
         layer.openPopup();
       };
       ul.appendChild(li);
     });
-
-    title.onclick=()=>{ ul.style.display=(ul.style.display==='none'||ul.style.display==='')?'block':'none'; };
-    div.appendChild(title);
-    div.appendChild(ul);
-    filmList.appendChild(div);
+    title.onclick = ()=> { ul.style.display = (ul.style.display==='none'||ul.style.display==='') ? 'block' : 'none'; };
+    div.appendChild(title); div.appendChild(ul); filmList.appendChild(div);
   });
 
-  // Arama
-  document.getElementById('search').addEventListener('input',(e)=>{
-    const q=e.target.value.trim().toLowerCase();
+  // search
+  document.getElementById('search').addEventListener('input', (e)=>{
+    const q = e.target.value.trim().toLowerCase();
     document.querySelectorAll('.film').forEach(div=>{
-      const title=div.querySelector('.film-title').textContent.toLowerCase();
-      const lis=Array.from(div.querySelectorAll('li')).map(li=>li.textContent.toLowerCase());
-      const match=title.includes(q)||lis.some(t=>t.includes(q));
-      div.style.display=match?'block':'none';
+      const title = div.querySelector('.film-title').textContent.toLowerCase();
+      const lis = Array.from(div.querySelectorAll('li')).map(li=>li.textContent.toLowerCase());
+      const match = title.includes(q) || lis.some(t=>t.includes(q));
+      div.style.display = match ? 'block' : 'none';
     });
   });
 
-  // Panel aç/kapa
-  const sidebar=document.getElementById('sidebar');
-  const toggle=document.getElementById('toggle-btn');
-  const arrow=toggle.querySelector('span');
-  toggle.addEventListener('click',()=>{
-    sidebar.classList.toggle('closed');
-    if(sidebar.classList.contains('closed')){
-      toggle.style.left='0';
-      arrow.textContent='▸';
-    } else {
-      toggle.style.left='340px';
-      arrow.textContent='◂';
-    }
+  // toggle button behavior
+  const sidebar = document.getElementById('sidebar');
+  const toggle = document.getElementById('toggle-btn');
+  toggle.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const closed = sidebar.classList.toggle('closed');
+    // move toggle position and arrow
+    updateTogglePosition(closed);
+    toggle.querySelector('span').textContent = closed ? '▸' : '◂';
+    // invalidate map
     map.invalidateSize();
   });
-})
-.catch(err=>{
+
+}).catch(err=>{
   console.error('GeoJSON load error', err);
   alert('GeoJSON yüklenemedi. Konsolu kontrol et.');
 });
