@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Ankara’nın Sinematik Kartografyası</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+html,body{height:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Helvetica,Arial,sans-serif;background:#f7f9fb;overflow:hidden;}
+#sidebar{position:absolute;left:0;top:0;width:340px;height:100%;background:#fff;border-right:1px solid #e6eef6;box-shadow:2px 0 6px rgba(0,0,0,0.06);padding:18px;overflow:auto;transition:transform .35s ease;z-index:1200;}
+#sidebar.closed{transform:translateX(-100%);}
+#toggle-btn{position:absolute;top:20px;left:340px;width:28px;height:48px;background:#fff;border:1px solid #d0d7df;border-left:none;border-radius:0 6px 6px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2000;box-shadow:0 1px 3px rgba(0,0,0,0.15);}
+#toggle-btn span{font-size:14pt;color:#333;}
+#tab-menu{display:flex;gap:8px;margin-bottom:12px;}
+.tab-btn{flex:1;padding:6px 4px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;}
+.tab-btn.active{background:#e8ecf3;font-weight:600;}
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+#map{position:absolute;left:0;top:0;right:0;bottom:0;z-index:1;}
+.film{margin-bottom:10px;border-bottom:1px solid #f0f4f8;padding-bottom:8px;}
+.film-title{cursor:pointer;font-weight:500;font-size:11pt;color:#333;margin-bottom:6px;}
+.mekan-list{list-style:disc;margin:0 0 0 18px;padding:0;display:none;}
+.mekan-list li{font-weight:400;font-size:9pt;margin-bottom:6px;cursor:pointer;color:#333;}
+.mekan-list li:hover{text-decoration:underline;}
+</style>
+</head>
+<body>
+<aside id="sidebar">
+  <h1>Ankara’nın Sinematik Kartografyası</h1>
+  <div class="description">Bu çalışma Ankara Üniversitesi Sosyal Bilimler Enstitüsü Radyo Televizyon ve Sinema Anabilim Dalı'nda Prof. Dr. S. Ruken Öztürk danışmanlığında Sezer Ahmet Kına tarafından yürütülen <i>"Sinemada Kentin Dönüşümünü Seyretmek: Ankara Örneği"</i> başlıklı doktora tezi kapsamında hazırlanmıştır.</div>
+  <div id="tab-menu">
+    <button class="tab-btn active" data-tab="filmler">Filmler ve Mekânlar</button>
+    <button class="tab-btn" data-tab="yogunluk">Mekânsal Dağılım ve Yoğunluk</button>
+    <button class="tab-btn" data-tab="duygu">Duygu Haritaları</button>
+  </div>
+  <div id="tab-filmler" class="tab-content active">
+    <input id="search" placeholder="Haritada ara" style="width:100%;padding:6px 8px;font-size:9pt;border:1px solid #d0d7df;border-radius:6px;margin-bottom:12px;"/>
+    <div id="film-list"></div>
+  </div>
+  <div id="tab-yogunluk" class="tab-content"><p>Bu sekme harita verilerini <b>heatmap_points.geojson</b> dosyasından çeker.</p></div>
+  <div id="tab-duygu" class="tab-content"><p>Bu sekme şu anda boş.</p></div>
+</aside>
+<div id="toggle-btn"><span>◂</span></div>
+<div id="map"></div>
+
+<script>
+// Harita oluştur
+const map = L.map('map').setView([39.93,32.85],11);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:22}).addTo(map);
+
+let currentLayerGroup = L.layerGroup().addTo(map);
+let films={},featureToLayer=new Map();
+
+// --- FİLMLER ve MEKANLAR ---
+function loadFilmler(){
+  fetch('kmzs.geojson').then(r=>r.json()).then(data=>{
+    currentLayerGroup.clearLayers();
+    films={}; featureToLayer.clear();
+    const filmList=document.getElementById('film-list');
+    filmList.innerHTML='';
+    data.features.forEach(f=>{
+      const folder=(f.properties?.folder||'Bilinmeyen Film').replace(/[\/|]+/g,'');
+      const name=f.properties?.name||'(Adsız Mekân)';
+      if(!films[folder]) films[folder]=[];
+      films[folder].push(f);
+      const geom=f.geometry; if(!geom) return;
+      const color=f.properties?.style?.fillColor||'#e63946';
+      let layer=null;
+      if(geom.type==='Point'){
+        const c=[geom.coordinates[1],geom.coordinates[0]];
+        layer=L.circleMarker(c,{radius:6,color,fillColor:color,fillOpacity:1});
+      } else if(geom.type==='LineString'){
+        const coords=geom.coordinates.map(c=>[c[1],c[0]]);
+        layer=L.polyline(coords,{color,weight:3,opacity:0.9});
+      }
+      if(layer){
+        layer.bindPopup(`<b>${name}</b><br>${folder}`);
+        layer.feature=f;
+        layer.addTo(currentLayerGroup);
+        featureToLayer.set(f,layer);
+      }
+    });
+    Object.keys(films).forEach(film=>{
+      const div=document.createElement('div');div.className='film';
+      const title=document.createElement('div');title.className='film-title';title.textContent=film;
+      const ul=document.createElement('ul');ul.className='mekan-list';
+      films[film].forEach(feat=>{
+        const li=document.createElement('li');li.textContent=feat.properties.name;
+        li.onclick=()=>{const l=featureToLayer.get(feat);if(l){map.fitBounds(l.getBounds?l.getBounds():L.latLngBounds(l.getLatLng(),l.getLatLng()));l.openPopup();}};
+        ul.appendChild(li);
+      });
+      title.onclick=()=>{ul.style.display=(ul.style.display==='none'?'block':'none');};
+      div.appendChild(title);div.appendChild(ul);filmList.appendChild(div);
+    });
+  });
+}
+
+// --- MEKANSAL DAĞILIM ---
+function loadYogunluk(){
+  fetch('heatmap_points.geojson').then(r=>r.json()).then(data=>{
+    currentLayerGroup.clearLayers();
+    L.geoJSON(data,{
+      pointToLayer:(f,latlng)=>L.circleMarker(latlng,{radius:5,fillColor:'#457b9d',color:'#457b9d',fillOpacity:0.8,opacity:0.9})
+    }).addTo(currentLayerGroup);
+  });
+}
+
+// --- BOŞ HARİTA (DUYGU) ---
+function clearMap(){ currentLayerGroup.clearLayers(); }
+
+// Sekme geçişleri
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+    document.querySelector(`#tab-${btn.dataset.tab}`).classList.add('active');
+    if(btn.dataset.tab==='filmler'){loadFilmler();document.getElementById('film-list').style.display='block';}
+    else if(btn.dataset.tab==='yogunluk'){loadYogunluk();document.getElementById('film-list').style.display='none';}
+    else{clearMap();document.getElementById('film-list').style.display='none';}
+  });
+});
+
+// Sidebar kontrolü
+document.getElementById('toggle-btn').onclick=()=>{
+  const sb=document.getElementById('sidebar');
+  sb.classList.toggle('closed');
+  document.querySelector('#toggle-btn span').textContent=sb.classList.contains('closed')?'▸':'◂';
+  map.invalidateSize();
+};
+
+// Başlangıçta ilk sekme yükle
+loadFilmler();
+</script>
+</body>
+</html>
