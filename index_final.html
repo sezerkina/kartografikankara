@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Ankara’nın Sinematik Kartografyası</title>
+
+<link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+  (function(){
+    function ensureHidden() {
+      document.querySelectorAll('.leaflet-control-attribution, .leaflet-control-scale').forEach(el => { try{ el.remove(); }catch(e){} });
+      const s = document.createElement('style');
+      s.id = 'force-hide-leaflet-credits';
+      s.innerHTML = '.leaflet-control-attribution, .leaflet-control-scale{display:none !important; visibility:hidden !important; height:0 !important; margin:0 !important; padding:0 !important;}';
+      if(!document.getElementById('force-hide-leaflet-credits')) document.head.appendChild(s);
+    }
+    ensureHidden();
+    setTimeout(ensureHidden, 250);
+    setTimeout(ensureHidden, 800);
+    window._ensureHiddenInterval = setInterval(ensureHidden, 1200);
+
+    function setupScale(map){
+      if(!map) return;
+      if(window._ensureHiddenInterval) { clearInterval(window._ensureHiddenInterval); window._ensureHiddenInterval = null; }
+      let scaleDiv = document.querySelector('.custom-scale');
+      if(!scaleDiv){
+        scaleDiv = L.DomUtil.create('div', 'custom-scale');
+        scaleDiv.style.position = 'absolute';
+        scaleDiv.style.bottom = '8px';
+        scaleDiv.style.right = '75px';
+        scaleDiv.style.background = 'rgba(255,255,255,0.95)';
+        scaleDiv.style.padding = '4px 8px';
+        scaleDiv.style.borderRadius = '4px';
+        scaleDiv.style.fontSize = '11px';
+        scaleDiv.style.fontWeight = '600';
+        scaleDiv.style.boxShadow = '0 1px 2px rgba(0,0,0,0.08)';
+        scaleDiv.style.zIndex = '1000';
+        if(map.getContainer()) map.getContainer().appendChild(scaleDiv);
+      }
+      function updateScale() {
+        const lat = map.getCenter().lat * Math.PI / 180;
+        const metersPerPixel = 40075016.686 * Math.cos(lat) / Math.pow(2, map.getZoom() + 8);
+        const scale = Math.round(1 / (metersPerPixel / 0.000264583));
+        scaleDiv.textContent = '1:' + scale.toLocaleString('tr-TR');
+      }
+      map.on('zoomend moveend viewreset', updateScale);
+      updateScale();
+      const z = document.querySelector('.leaflet-control-zoom');
+      if(z){ z.style.right = '10px'; z.style.bottom = '30px'; z.style.transition = 'right 0.2s, bottom 0.2s'; }
+    }
+    window._setupScale = setupScale;
+  })();
+</script>
+
+<style>
+html,body{height:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Helvetica,Arial,sans-serif!important;background:#f7f9fb;overflow:hidden;}
+#sidebar{position:absolute;left:0;top:0;width:340px;height:100%;background:#fff;border-right:1px solid #e6eef6;box-shadow:2px 0 6px rgba(0,0,0,0.06);padding:18px;box-sizing:border-box;overflow:auto;transition:transform .35s ease;z-index:1200;}
+#sidebar.closed{transform:translateX(-100%);}
+#toggle-btn{position:absolute;top:20px;left:340px;width:28px;height:48px;background:#fff;border:1px solid #d0d7df;border-left:none;border-radius:0 6px 6px 0;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2000;box-shadow:0 1px 3px rgba(0,0,0,0.15);transition:background 0.2s ease,left .35s ease;}
+#toggle-btn:hover{background:#f3f4f6;}
+#toggle-btn span{font-size:14pt;color:#333;user-select:none;}
+#sidebar h1{font-weight:700;font-size:12pt;margin:4px 0 8px;}
+#sidebar .description{font-weight:400;font-style:italic;font-size:8pt;color:#445;line-height:1.2;margin-bottom:12px;}
+#search{width:100%;padding:6px 8px;font-size:8pt;font-style:italic;border:1px solid #d0d7df;border-radius:6px;margin-bottom:12px;box-sizing:border-box;}
+.film{margin-bottom:10px;border-bottom:1px solid #f0f4f8;padding-bottom:8px;}
+.film-title{cursor:pointer;font-weight:500;font-size:11pt;color:#333;margin-bottom:6px;}
+.mekan-list{list-style:disc;margin:0 0 0 18px;padding:0;display:none;}
+.mekan-list li{font-weight:400;font-size:9pt;margin-bottom:6px;cursor:pointer;color:#333;}
+.mekan-list li:hover{text-decoration:underline;}
+#map{position:absolute;left:0;top:0;right:0;bottom:0;z-index:1;}
+.leaflet-control-zoom{position:absolute!important;bottom:20px;right:20px;transform:scale(0.8);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,0.1);}
+</style>
+</head>
+<body>
+<aside id="sidebar">
+<h1>Ankara’nın Sinematik Kartografyası</h1>
+<div class="description">
+Bu çalışma Ankara Üniversitesi Sosyal Bilimler Enstitüsü Radyo Televizyon ve Sinema Anabilim Dalı'nda Prof. Dr. S. Ruken Öztürk danışmanlığında Sezer Ahmet Kına tarafından yürütülen <i>"Sinemada Kentin Dönüşümünü Seyretmek: Ankara Örneği"</i> başlıklı doktora tezi kapsamında hazırlanmıştır.
+</div>
+
+<div id="tab-menu" style="display:flex;gap:8px;margin-bottom:12px;">
+<button class="tab-btn active" data-tab="filmler" style="flex:1;padding:6px 4px;border:1px solid #ccc;border-radius:6px;background:#e8ecf3;font-weight:600;cursor:pointer;">Filmler ve Mekânlar</button>
+<button class="tab-btn" data-tab="yogunluk" style="flex:1;padding:6px 4px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">Mekânsal Dağılım ve Yoğunluk</button>
+<button class="tab-btn" data-tab="duygu" style="flex:1;padding:6px 4px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">Duygu Haritaları</button>
+</div>
+
+<div id="tab-filmler" class="tab-content active">
+<input aria-label="Haritada ara" id="search" placeholder="Haritada ara"/>
+<div id="film-list"></div>
+</div>
+<div id="tab-yogunluk" class="tab-content" style="display:none;"></div>
+<div id="tab-duygu" class="tab-content" style="display:none;"></div>
+</aside>
+<div id="toggle-btn"><span>◂</span></div>
+<div id="map"></div>
+
+<script>
+const map = L.map('map', {zoomControl:true}).setView([39.93,32.85],11);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap contributors, &copy; Carto', maxZoom: 22, attributionControl: false }).addTo(map);
+map.zoomControl.setPosition('bottomright');
+if(window._setupScale) window._setupScale(map);
+
+let allLayers = L.layerGroup().addTo(map);
+
+// 🔥 Fire temalı ısı haritası
+function loadHeatmap() {
+  if (typeof L.heatLayer === 'undefined') {
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet.heat/dist/leaflet-heat.js';
+    script.onload = () => loadHeatmap();
+    document.head.appendChild(script);
+    return;
+  }
+  fetch('heatmap_points.geojson')
+    .then(r => r.json())
+    .then(data => {
+      allLayers.clearLayers();
+      const points = data.features.map(f => {
+        const [lng, lat] = f.geometry.coordinates;
+        return [lat, lng, 0.8];
+      });
+      L.heatLayer(points, {
+        radius: 27,
+        blur: 13,
+        max: 3,
+        gradient: {
+          0.0: '#000000',
+          0.4: '#800000',
+          0.6: '#FF4500',
+          0.8: '#FFA500',
+          1.0: '#FFFF00'
+        }
+      }).addTo(allLayers);
+    })
+    .catch(err => console.error('heatmap yükleme hatası', err));
+}
+
+function clearData(){ allLayers.clearLayers(); }
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-filmler').style.display = (btn.dataset.tab === 'filmler') ? 'block' : 'none';
+    document.getElementById('tab-yogunluk').style.display = (btn.dataset.tab === 'yogunluk') ? 'block' : 'none';
+    document.getElementById('tab-duygu').style.display = (btn.dataset.tab === 'duygu') ? 'block' : 'none';
+    if (btn.dataset.tab === 'filmler') { loadKmzs(); }
+    else if (btn.dataset.tab === 'yogunluk') { loadHeatmap(); }
+    else { clearData(); }
+  });
+});
+</script>
+</body>
+</html>
