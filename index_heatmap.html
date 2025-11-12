@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Ankara’nın Sinematik Kartografyası</title>
+
+<link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+<!-- --- Robust removal of Leaflet credits & scale, and dynamic 1: scale display --- -->
+<script>
+  // This script references `map` variable later; it will attach handlers once map exists.
+  (function(){
+    function ensureHidden() {
+      document.querySelectorAll('.leaflet-control-attribution, .leaflet-control-scale').forEach(el => { try{ el.remove(); }catch(e){} });
+      const s = document.createElement('style');
+      s.id = 'force-hide-leaflet-credits';
+      s.innerHTML = '.leaflet-control-attribution, .leaflet-control-scale{display:none !important; visibility:hidden !important; height:0 !important; margin:0 !important; padding:0 !important;}';
+      if(!document.getElementById('force-hide-leaflet-credits')) document.head.appendChild(s);
+    }
+    ensureHidden();
+    setTimeout(ensureHidden, 250);
+    setTimeout(ensureHidden, 800);
+    window._ensureHiddenInterval = setInterval(ensureHidden, 1200);
+
+    // Create/update scale when map is ready
+    function setupScale(map){
+      if(!map) return;
+      if(window._ensureHiddenInterval) { clearInterval(window._ensureHiddenInterval); window._ensureHiddenInterval = null; }
+      let scaleDiv = document.querySelector('.custom-scale');
+      if(!scaleDiv){
+        scaleDiv = L.DomUtil.create('div', 'custom-scale');
+        scaleDiv.style.position = 'absolute';
+        scaleDiv.style.bottom = '8px';
+        scaleDiv.style.right = '75px';
+        scaleDiv.style.background = 'rgba(255,255,255,0.95)';
+        scaleDiv.style.padding = '4px 8px';
+        scaleDiv.style.borderRadius = '4px';
+        scaleDiv.style.fontSize = '11px';
+        scaleDiv.style.fontWeight = '600';
+        scaleDiv.style.boxShadow = '0 1px 2px rgba(0,0,0,0.08)';
+        scaleDiv.style.zIndex = '1000';
+        if(map.getContainer()) map.getContainer().appendChild(scaleDiv);
+      }
+      function updateScale() {
+        const lat = map.getCenter().lat * Math.PI / 180;
+        const metersPerPixel = 40075016.686 * Math.cos(lat) / Math.pow(2, map.getZoom() + 8);
+        const scale = Math.round(1 / (metersPerPixel / 0.000264583));
+        scaleDiv.textContent = '1:' + scale.toLocaleString('tr-TR');
+      }
+      map.on('zoomend moveend viewreset', updateScale);
+      updateScale();
+      // nudge zoom position
+      const z = document.querySelector('.leaflet-control-zoom');
+      if(z){ z.style.right = '10px'; z.style.bottom = '30px'; z.style.transition = 'right 0.2s, bottom 0.2s'; }
+    }
+    window._setupScale = setupScale;
+  })();
+</script>
+
+<style>
+html,body{
+  height:100%;
+  margin:0;
+  font-family:-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+  background:#f7f9fb;
+  overflow:hidden;
+}
+
+/* Sidebar */
+#sidebar{
+  position:absolute;
+  left:0;top:0;
+  width:340px;height:100%;
+  background:#fff;
+  border-right:1px solid #e6eef6;
+  box-shadow:2px 0 6px rgba(0,0,0,0.06);
+  padding:18px;
+  box-sizing:border-box;
+  overflow:auto;
+  transition:transform .35s ease;
+  z-index:1200;
+}
+#sidebar.closed{transform:translateX(-100%);}
+#toggle-btn{
+  position:absolute;
+  top:20px;left:340px;
+  width:28px;height:48px;
+  background:#fff;border:1px solid #d0d7df;border-left:none;
+  border-radius:0 6px 6px 0;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;z-index:2000;
+  box-shadow:0 1px 3px rgba(0,0,0,0.15);
+  transition:background 0.2s ease, left .35s ease;
+}
+#toggle-btn:hover{background:#f3f4f6;}
+#toggle-btn span{font-size:14pt;color:#333;user-select:none;}
+#sidebar h1{font-weight:700;font-size:12pt;margin:4px 0 8px;}
+#sidebar .description{font-weight:400;font-style:italic;font-size:8pt;color:#445;line-height:1.2;margin-bottom:12px;}
+#search{width:100%;padding:6px 8px;font-size:8pt;font-style:italic;border:1px solid #d0d7df;border-radius:6px;margin-bottom:12px;box-sizing:border-box;}
+.film{margin-bottom:10px;border-bottom:1px solid #f0f4f8;padding-bottom:8px;}
+.film-title{cursor:pointer;font-weight:500;font-size:11pt;color:#333;margin-bottom:6px;}
+.mekan-list{list-style:disc;margin:0 0 0 18px;padding:0;display:none;}
+.mekan-list li{font-weight:400;font-size:9pt;margin-bottom:6px;cursor:pointer;color:#333;}
+.mekan-list li:hover{text-decoration:underline;}
+#map{position:absolute;left:0;top:0;right:0;bottom:0;z-index:1;}
+.leaflet-control-zoom{position:absolute !important;bottom:20px;right:20px;transform:scale(0.8);border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,0.1);}
+.leaflet-popup-content img{max-width:260px;height:auto;border-radius:6px;margin-top:6px;display:block;}
+.leaflet-popup-content-wrapper {width:300px !important;max-width:300px !important;}
+.leaflet-popup-content { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif !important; font-weight: 400; }
+</style>
+
+</head>
+<body>
+<aside id="sidebar">
+<h1>Ankara’nın Sinematik Kartografyası</h1>
+<div class="description">
+    Bu çalışma Ankara Üniversitesi Sosyal Bilimler Enstitüsü Radyo Televizyon ve Sinema Anabilim Dalı'nda 
+    Prof. Dr. S. Ruken Öztürk danışmanlığında Sezer Ahmet Kına tarafından yürütülen 
+    <i>"Sinemada Kentin Dönüşümünü Seyretmek: Ankara Örneği"</i> başlıklı doktora tezi kapsamında hazırlanmıştır.
+</div>
+
+<!-- Tab menu (keeps original look) -->
+<div id="tab-menu" style="display:flex;gap:8px;margin-bottom:12px;">
+  <button class="tab-btn active" data-tab="filmler" style="flex:1;padding:6px 4px;border:1px solid #ccc;border-radius:6px;background:#e8ecf3;font-weight:600;cursor:pointer;">Filmler ve Mekânlar</button>
+  <button class="tab-btn" data-tab="yogunluk" style="flex:1;padding:6px 4px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">Mekânsal Dağılım ve Yoğunluk</button>
+  <button class="tab-btn" data-tab="duygu" style="flex:1;padding:6px 4px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">Duygu Haritaları</button>
+</div>
+
+<!-- Tab contents (IDs kept close to original to avoid breaking code) -->
+<div id="tab-filmler" class="tab-content active">
+  <input aria-label="Haritada ara" id="search" placeholder="Haritada ara"/>
+  <div id="film-list"></div>
+</div>
+<div id="tab-yogunluk" class="tab-content" style="display:none;"></div>
+<div id="tab-duygu" class="tab-content" style="display:none;"></div>
+
+</aside>
+<div id="toggle-btn"><span>◂</span></div>
+<div id="map"></div>
+
+<script>
+// Helper: clean folder name
+function cleanFolderName(folder){
+  if(!folder) return "";
+  return folder.replace(/[\/|]+/g, '').trim();
+}
+
+// initialize map (single shared map)
+const map = L.map('map', {zoomControl:true}).setView([39.93,32.85],11);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors, &copy; Carto',
+  maxZoom: 22, attributionControl: false
+}).addTo(map);
+map.zoomControl.setPosition('bottomright');
+L.control.scale({position:'bottomright', metric:true, imperial:false}).addTo(map);
+
+// wire up the earlier scale/setup script
+if(window._setupScale) window._setupScale(map);
+
+let films = {};
+let featureToLayer = new Map();
+let allLayers = L.layerGroup().addTo(map);
+
+// Load kmzs.geojson (original behavior) into the shared layer group
+function loadKmzs(onComplete){
+  fetch('kmzs.geojson').then(r=>r.json()).then(data=>{
+    films = {}; featureToLayer = new Map();
+    allLayers.clearLayers();
+    data.features.forEach(f=>{
+      const folder = cleanFolderName(f.properties?.folder) || "Bilinmeyen Film";
+      const name = f.properties?.name || "(Adsız Mekân)";
+      if(!films[folder]) films[folder]=[];
+      films[folder].push(f);
+
+      const geom = f.geometry;
+      if(!geom) return;
+
+      const styleProps = f.properties?.style || {};
+      const color = styleProps.fillColor || '#e63946';
+      let layer = null;
+      if(geom.type === 'Point'){
+        const coords = [geom.coordinates[1], geom.coordinates[0]];
+        const radius = styleProps.radius || 6;
+        layer = L.circleMarker(coords, {
+          radius,
+          color,
+          fillColor: styleProps.fillColor || color,
+          fillOpacity: ('fillOpacity' in styleProps) ? styleProps.fillOpacity : 1
+        });
+      } else if(geom.type === 'MultiPoint'){
+        const coords = geom.coordinates.map(c => [c[1], c[0]]);
+        const group = L.featureGroup(coords.map(c => L.circleMarker(c, {radius: styleProps.radius||6, color, fillColor: styleProps.fillColor||color, fillOpacity: ('fillOpacity' in styleProps)? styleProps.fillOpacity:1})));
+        layer = group;
+      } else if(geom.type === 'LineString' || geom.type === 'MultiLineString'){
+        const coords = (geom.type === 'LineString') ? geom.coordinates.map(c => [c[1], c[0]]) : geom.coordinates.map(line => line.map(c => [c[1], c[0]]));
+        layer = (geom.type === 'LineString') ? L.polyline(coords, {color: color, weight: 3, opacity: 0.9}) : L.featureGroup(coords.map(line => L.polyline(line, {color: color, weight:3, opacity:0.9})));
+      } else if(geom.type === 'Polygon' || geom.type === 'MultiPolygon'){
+        const coords = (geom.type === 'Polygon') ? geom.coordinates.map(ring => ring.map(c => [c[1], c[0]])) : geom.coordinates.map(poly => poly.map(ring => ring.map(c => [c[1], c[0]])));
+        layer = (geom.type === 'Polygon') ? L.polygon(coords, {color: color, weight:2, fillColor: color, fillOpacity:0.3}) : L.featureGroup(coords.map(poly => L.polygon(poly, {color: color, weight:2, fillColor: color, fillOpacity:0.3})));
+      }
+
+      if(layer){
+        const props = f.properties || {};
+        let desc = props.description || '';
+        const imgMatches = (desc.match(/<img[^>]*>/gi) || []);
+        desc = desc.replace(/<img[^>]*>/gi, '').trim();
+        if(props.image){ imgMatches.push(`<img src="${props.image}" alt="">`); }
+
+        let popup = `<div style="font-family:-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif !important;">`;
+        popup += `<div style="font-weight:700;font-size:11pt;margin-bottom:4px;">${name}</div>`;
+        popup += `<div style="font-weight:500;font-size:10pt;margin-bottom:6px;">${folder}</div>`;
+        if(desc){ popup += `<div style="font-weight:400;font-size:9pt;margin-bottom:8px;">${desc}</div>`; }
+        if(imgMatches.length){ popup += imgMatches.join(''); }
+        popup += `</div>`;
+
+        if(layer.getLayers && typeof layer.getLayers === 'function'){
+          layer.getLayers().forEach(ch => { if(ch.bindPopup) ch.bindPopup(popup); ch.feature = f; allLayers.addLayer(ch); featureToLayer.set(f, ch); });
+        } else {
+          if(layer.bindPopup) layer.bindPopup(popup);
+          layer.feature = f;
+          allLayers.addLayer(layer);
+          featureToLayer.set(f, layer);
+        }
+      }
+    });
+
+    try{
+      const b=allLayers.getBounds();
+      if(b && b.isValid && b.isValid()) map.fitBounds(b.pad(0.08));
+    }catch(e){ map.setView([39.93,32.85],11); }
+
+    // Build film list UI
+    const filmList = document.getElementById('film-list');
+    filmList.innerHTML = '';
+    Object.keys(films)
+    .sort((a,b)=>{
+      const ya=parseInt((a.match(/\d{4}/)||[0])[0]);
+      const yb=parseInt((b.match(/\d{4}/)||[0])[0]);
+      return (ya||9999)-(yb||9999);
+    })
+    .forEach(film=>{
+      const div=document.createElement('div');
+      div.className='film';
+      const title=document.createElement('div');
+      title.className='film-title';
+      title.textContent=film;
+      const ul=document.createElement('ul');
+      ul.className='mekan-list';
+
+      films[film].forEach(feat=>{
+        const li=document.createElement('li');
+        li.textContent=feat.properties.name||'(Adsız Mekan)';
+        li.onclick=(e)=>{
+          e.stopPropagation();
+          const layer=featureToLayer.get(feat);
+          if(!layer) return;
+          const g=feat.geometry;
+          if(g.type==='Point'){ map.setView([g.coordinates[1],g.coordinates[0]],16); }
+          layer.openPopup();
+        };
+        ul.appendChild(li);
+      });
+
+      title.onclick=()=>{
+        ul.style.display=(ul.style.display==='none'||ul.style.display==='')?'block':'none';
+      };
+      div.appendChild(title);
+      div.appendChild(ul);
+      filmList.appendChild(div);
+    });
+
+    // Search filtering (only in film tab)
+    const searchInput = document.getElementById('search');
+    searchInput.addEventListener('input',(e)=>{
+      const q=e.target.value.trim().toLowerCase();
+      document.querySelectorAll('.film').forEach(div=>{
+        const title=div.querySelector('.film-title').textContent.toLowerCase();
+        const lis=Array.from(div.querySelectorAll('li')).map(li=>li.textContent.toLowerCase());
+        const match=title.includes(q)||lis.some(t=>t.includes(q));
+        div.style.display=match?'block':'none';
+        if(q){
+          div.querySelectorAll('li').forEach(li=>{
+            const text=li.textContent;
+            const re=new RegExp(q,'gi');
+            li.innerHTML=text.replace(re, m=>'<mark>'+m+'</mark>');
+          });
+        } else {
+          div.querySelectorAll('li').forEach(li=> li.innerHTML=li.textContent);
+        }
+      });
+    });
+
+    if(onComplete) onComplete();
+  }).catch(err=>{
+    console.error('kmzs.geojson yükleme hatası', err);
+    if(onComplete) onComplete(err);
+  });
+}
+
+// Load heatmap_points.geojson for second tab
+function loadHeatmap(){
+  fetch('heatmap_points.geojson').then(r=>r.json()).then(data=>{
+    allLayers.clearLayers();
+    L.geoJSON(data, {
+      pointToLayer: (f, latlng) => L.circleMarker(latlng, {radius:4, fillColor:'#457b9d', color:'#457b9d', fillOpacity:0.8})
+    }).addTo(allLayers);
+    try{
+      const b=allLayers.getBounds();
+      if(b && b.isValid && b.isValid()) map.fitBounds(b.pad(0.08));
+    }catch(e){}
+  }).catch(err=>{
+    console.error('heatmap yükleme hatası', err);
+  });
+}
+
+function clearData(){ allLayers.clearLayers(); }
+
+// Sidebar toggle
+const sidebar=document.getElementById('sidebar');
+const toggle=document.getElementById('toggle-btn');
+const arrow=toggle.querySelector('span');
+toggle.addEventListener('click',()=>{
+  sidebar.classList.toggle('closed');
+  if(sidebar.classList.contains('closed')){
+    toggle.style.left='0';
+    arrow.textContent='▸';
+  } else {
+    toggle.style.left='340px';
+    arrow.textContent='◂';
+  }
+  map.invalidateSize();
+});
+
+// Tab switching (preserve original styles and film UI)
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    // show/hide tab-content blocks
+    document.getElementById('tab-filmler').style.display = (btn.dataset.tab === 'filmler') ? 'block' : 'none';
+    document.getElementById('tab-yogunluk').style.display = (btn.dataset.tab === 'yogunluk') ? 'block' : 'none';
+    document.getElementById('tab-duygu').style.display = (btn.dataset.tab === 'duygu') ? 'block' : 'none';
+
+    if(btn.dataset.tab === 'filmler'){
+      // load kmzs and show film list/search
+      document.getElementById('search').style.display = 'block';
+      document.getElementById('film-list').style.display = 'block';
+      loadKmzs();
+    } else if(btn.dataset.tab === 'yogunluk'){
+      // hide film UI and load heatmap
+      document.getElementById('search').style.display = 'none';
+      document.getElementById('film-list').style.display = 'none';
+      loadHeatmap();
+    } else {
+      // Duygu: clear layers and hide film UI
+      document.getElementById('search').style.display = 'none';
+      document.getElementById('film-list').style.display = 'none';
+      clearData();
+    }
+  });
+});
+
+// Initial load: populate film tab exactly like original
+loadKmzs();
+
+</script>
+
+</body>
+</html>
