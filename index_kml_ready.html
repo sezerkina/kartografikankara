@@ -387,7 +387,7 @@ let allLayers = L.layerGroup().addTo(map);
 
 // Load kmzs.geojson (original behavior) into the shared layer group
 function loadKmzs(onComplete){
-  fetch('kml_with_folders.geojson').then(r=>r.json()).then(data=>{
+  fetch('kmls.geojson').then(r=>r.json()).then(data=>{
     films = {}; featureToLayer = new Map();
     allLayers.clearLayers();
     data.features.forEach(f=>{
