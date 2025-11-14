@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Meydan Köpeği Harita</title>
+
+  <style>
+    body, html { margin:0; padding:0; height:100%; }
+    #map { height:100%; width:100%; }
+
+    .slider-container {
+      position: relative;
+      width: 260px;
+      height: auto;
+    }
+
+    .slider-container img {
+      width: 100%;
+      border-radius: 6px;
+      display: block;
+    }
+
+    .slider-button {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: #ffffffcc;
+      border: none;
+      padding: 4px 8px;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 18px;
+    }
+
+    .slider-prev { left: 0; }
+    .slider-next { right: 0; }
+  </style>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+/>
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+
+</head>
+<body>
+
+<div id="map"></div>
+
+<script>
+var map = L.map('map').setView([39.93, 32.85], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19
+}).addTo(map);
+
+window.sliderIndex = {};
+window.sliderImages = {};
+
+function nextSlide(key) {
+  let imgs = window.sliderImages[key];
+  if (!imgs) return;
+  window.sliderIndex[key] = (window.sliderIndex[key] + 1) % imgs.length;
+  document.getElementById("slide-" + key).src = imgs[window.sliderIndex[key]];
+}
+
+function prevSlide(key) {
+  let imgs = window.sliderImages[key];
+  if (!imgs) return;
+  window.sliderIndex[key] = (window.sliderIndex[key] - 1 + imgs.length) % imgs.length;
+  document.getElementById("slide-" + key).src = imgs[window.sliderIndex[key]];
+}
+
+fetch("kmzs.geojson")
+  .then(res => res.json())
+  .then(data => {
+    L.geoJSON(data, {
+      onEachFeature: function(feature, layer) {
+        const props = feature.properties;
+        const imgs = props.imgs || [];
+
+        let popupHTML = `
+          <div style="max-width:260px; font-family:sans-serif; font-size:14px;">
+            <strong>${props.name || ""}</strong><br><br>
+        `;
+
+        if (imgs.length === 1) {
+          popupHTML += `
+            <img src="${imgs[0]}"
+                 onerror="this.style.display='none';"
+                 style="width:260px; border-radius:6px;">
+          `;
+        }
+
+        if (imgs.length > 1) {
+          const key = props.film_slug + "_" + props.loc_slug;
+          window.sliderImages[key] = imgs;
+          window.sliderIndex[key] = 0;
+
+          popupHTML += `
+            <div class="slider-container">
+              <img id="slide-${key}" src="${imgs[0]}"
+                   onerror="this.style.display='none';">
+
+              <button class="slider-button slider-prev"
+                onclick="prevSlide('${key}')">‹</button>
+
+              <button class="slider-button slider-next"
+                onclick="nextSlide('${key}')">›</button>
+            </div>
+          `;
+        }
+
+        popupHTML += `</div>`;
+        layer.bindPopup(popupHTML);
+      }
+    }).addTo(map);
+  });
+</script>
+
+</body>
+</html>
